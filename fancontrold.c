@@ -281,7 +281,7 @@ static int hwmon_find(const char *dev_name)
 
 		snprintf(path, sizeof(path), "%s/%s", HWMON_PATH, dir->d_name);
 		chip_name = sysfs_read_attr(path, "name");
-		if (!strcmp(chip_name, name)) {
+		if (chip_name && !strcmp(chip_name, name)) {
 			char *pwm;
 
 			found = TRUE;
