@@ -1,0 +1,15 @@
+# @BIN@ - Systemd init script
+#
+# Copyright (C) 2019 Analog Devices Inc.
+[Unit]
+Description=FANCONTROL Daemon
+ConditionPathExists=/sys/bus/iio /sys/class/hwmon
+
+[Service]
+ExecStart=@iCMAKE_INSTALL_FULL_SBINDIR@/@BIN@
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+Alias=@BIN@.service

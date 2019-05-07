@@ -1,0 +1,13 @@
+# @BIN@ - Upstart script
+#
+# Copyright (C) 2019 Analog Devices Inc.
+
+description "FANCONTROL Daemon"
+author      "Nuno Sá <nuno.sa@analog.com>"
+
+start on (local-filesystems)
+stop on runlevel [!2345]
+
+respawn
+
+exec @CMAKE_INSTALL_FULL_SBINDIR@/@BIN@ axi_fan_control
