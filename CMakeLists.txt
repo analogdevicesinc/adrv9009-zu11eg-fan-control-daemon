@@ -24,3 +24,5 @@ target_link_libraries(${BIN} ${LIBIIO_LIBRARIES})
 install(TARGETS ${BIN}
 	RUNTIME
 	DESTINATION ${CMAKE_INSTALL_SBINDIR})
+
+add_subdirectory(init)
