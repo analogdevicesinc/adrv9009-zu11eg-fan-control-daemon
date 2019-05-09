@@ -16,10 +16,14 @@
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/reboot.h>
 #include <dirent.h>
 #include <syslog.h>
 #include <iio.h>
 
+#define emerg(fmt, ...) \
+	syslog(LOG_EMERG, \
+	    "%s, %d: "fmt, __func__, __LINE__, ##__VA_ARGS__)
 
 #define error(fmt, ...) \
 	syslog(LOG_ERR, \
@@ -67,7 +71,9 @@ do { \
 #define BUFLEN_256		256
 #define BUFLEN_512		512
 #define BUFLEN_768		768
-
+#define DONT_CARE		-1
+#define HMC7044_SLEEP_REG	0
+#define HMC7044_SLEEP_VAL	"1"
 
 static int running = TRUE;
 static int verbose = FALSE;
@@ -78,6 +84,37 @@ struct monitor_iio_dev_lookup {
 	const int channel_idx;
 	/* atrribute name */
 	const char *attr;
+};
+
+struct monitor_iio_dev_shutdown {
+	/* device name */
+	const char *name;
+	/* attribute name which controls the state of the device */
+	const char *attr_name;
+	/* value to disable the device */
+	const char *attr_val;
+	/* register to be used on direct register access cases */
+	const int reg;
+};
+
+struct monitor_dev_shutdown {
+	struct monitor_iio_dev_shutdown iio_dev;
+	void (*iio_shutdown) (const struct monitor_iio_dev_shutdown *iio_dev);
+};
+
+static void monitor_iio_dev_shutdown(
+		const struct monitor_iio_dev_shutdown *iio_dev);
+static void monitor_iio_dev_debug_shutdown(
+		const struct monitor_iio_dev_shutdown *iio_dev);
+static void clean_up(void);
+
+static const struct monitor_dev_shutdown monitor_shutdown_list[] = {
+	{{"adrv9009-phy", "ensm_mode", "radio_off", DONT_CARE},
+		monitor_iio_dev_shutdown},
+	{{"adrv9009-phy-b", "ensm_mode", "radio_off", DONT_CARE},
+		monitor_iio_dev_shutdown},
+	{{"hmc7044", NULL, HMC7044_SLEEP_VAL, HMC7044_SLEEP_REG},
+		monitor_iio_dev_debug_shutdown},
 };
 
 /* For now just hard code the iio device to monitor */
@@ -207,6 +244,82 @@ static uint8_t monitor_get_pwm(const long temperature)
 	return pwm;
 }
 
+static void monitor_iio_dev_shutdown(
+		const struct monitor_iio_dev_shutdown *iio_shutdown)
+{
+	struct iio_device *dev;
+
+	if (!iio_shutdown->name || !iio_shutdown->attr_name ||
+	    !iio_shutdown->attr_val) {
+		error("IIO device not properly initialized\n");
+		return;
+	}
+
+	dev = iio_context_find_device(fan_monitor.ctx, iio_shutdown->name);
+	if (!dev) {
+		warn("Could not find iio dev %s\n", iio_shutdown->name);
+		return;
+	}
+
+	if (iio_device_attr_write_raw(dev, iio_shutdown->attr_name,
+				  iio_shutdown->attr_val,
+				  strlen(iio_shutdown->attr_val)) < 0)
+		warn("Failed to disable dev:%s\n", iio_shutdown->name);
+}
+
+static void monitor_iio_dev_debug_shutdown(
+		const struct monitor_iio_dev_shutdown *iio_shutdown)
+{
+	struct iio_device *dev;
+	uint32_t val;
+
+	if (!iio_shutdown->name || !iio_shutdown->attr_val ||
+	    iio_shutdown->reg == DONT_CARE) {
+		error("IIO device not properly initialized\n");
+		return;
+	}
+
+	dev = iio_context_find_device(fan_monitor.ctx, iio_shutdown->name);
+	if (!dev) {
+		warn("Could not find iio dev %s\n", iio_shutdown->name);
+		return;
+	}
+
+	val = atoi(iio_shutdown->attr_val);
+	if (iio_device_reg_write(dev, iio_shutdown->reg, val) < 0)
+		warn("Failed to disable dev:%s\n", iio_shutdown->name);
+}
+
+static void monitor_handle_fan_fault(void)
+{
+	char *fault;
+	uint32_t fan_fault = 0;
+	uint32_t dev;
+
+	fault = sysfs_read_attr(fan_monitor.path, "fan1_fault");
+	if (!fault)
+		return;
+
+	fan_fault = atoi(fault);
+	free(fault);
+
+	if (!fan_fault)
+		return;
+
+	emerg("FAN is faulty. System is going to poweroff!!!\n");
+	/* disable all known devices */
+	for (dev = 0; dev < ARRAY_SIZE(monitor_shutdown_list); dev++) {
+		if (monitor_shutdown_list[dev].iio_shutdown)
+			monitor_shutdown_list[dev].iio_shutdown(
+					&monitor_shutdown_list[dev].iio_dev);
+	}
+
+	/* if we reach this point the fan is faulty, let's poweroff! */
+	reboot(RB_POWER_OFF);
+	clean_up();
+	exit(EXIT_SUCCESS);
+}
+
 static void run(const time_t sleep)
 {
 	int ret;
@@ -228,6 +341,8 @@ static void run(const time_t sleep)
 
 		if (!running)
 			break;
+
+		monitor_handle_fan_fault();
 
 		/* do monitoring... */
 		for (cnt = 0; cnt < fan_monitor.numb_devs; cnt++) {
