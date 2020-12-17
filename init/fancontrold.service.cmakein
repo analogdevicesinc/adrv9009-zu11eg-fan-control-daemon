@@ -6,7 +6,7 @@ Description=FANCONTROL Daemon
 ConditionPathExists=/sys/bus/iio /sys/class/hwmon
 
 [Service]
-ExecStart=@iCMAKE_INSTALL_FULL_SBINDIR@/@BIN@
+ExecStart=@CMAKE_INSTALL_FULL_SBINDIR@/@BIN@
 KillMode=process
 Restart=on-failure
 
