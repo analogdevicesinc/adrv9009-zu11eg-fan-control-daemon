@@ -77,6 +77,8 @@ do { \
 
 static int running = TRUE;
 static int verbose = FALSE;
+/* default to 5 faulty fan reads (in a row) to try to shutdown the system */
+static uint32_t fault_hyst = 5;
 
 struct monitor_iio_dev_lookup {
 	const char *name;
@@ -145,6 +147,7 @@ static void usage(char *argv[])
 		" PARTICULAR PURPOSE.\n\n");
 	printf("  -v, --verbose\t\tVerbose.\n");
 	printf("  -s, --sleep\t\tSleep time between temperature checks.\n");
+	printf("  -f, --fault-cnt\tNumber of consecutive FAN FAULT reads before trying to shutdown the system\n");
 	printf("  -h, --help\t\tPrint this help.\n");
 	exit(EXIT_FAILURE);
 }
@@ -295,6 +298,7 @@ static void monitor_handle_fan_fault(void)
 	char *fault;
 	uint32_t fan_fault = 0;
 	uint32_t dev;
+	static uint32_t cnt = 0;
 
 	fault = sysfs_read_attr(fan_monitor.path, "fan1_fault");
 	if (!fault)
@@ -303,8 +307,12 @@ static void monitor_handle_fan_fault(void)
 	fan_fault = atoi(fault);
 	free(fault);
 
-	if (!fan_fault)
+	if (!fan_fault) {
+		cnt = 0;
 		return;
+	} else if (cnt++ < fault_hyst) {
+		return;
+	}
 
 	emerg("FAN is faulty. System is going to poweroff!!!\n");
 	/* disable all known devices */
@@ -542,18 +550,26 @@ int main(int argc, char *argv[])
 		{ "help", no_argument, NULL, 'h' },
 		{ "verbose", no_argument, NULL, 'v'},
 		{ "sleep", required_argument, NULL, 's' },
+		{ "fault-cnt", required_argument, NULL, 'f' },
 		{ 0, 0, 0, 0 }
 	};
 
 	memset(&fan_monitor, 0, sizeof(fan_monitor));
 
-	c = getopt_long(argc, argv, "s:vh", long_opts, NULL);
+	c = getopt_long(argc, argv, "s:f:vh", long_opts, NULL);
 	while (c != -1) {
 		switch (c) {
 		case 's':
 			sleep = atoi(optarg);
 			if (!sleep) {
 				error("Invalid argument for '-s, --sleep'\n");
+				usage(argv);
+			}
+			break;
+		case 'f':
+			fault_hyst = atoi(optarg);
+			if (!fault_hyst) {
+				error("Invalid argument for '-f, --fault-cnt'\n");
 				usage(argv);
 			}
 			break;
@@ -567,7 +583,7 @@ int main(int argc, char *argv[])
 			usage(argv);
 		}
 
-		c = getopt_long(argc, argv, "s:vh", long_opts, NULL);
+		c = getopt_long(argc, argv, "s:f:vh", long_opts, NULL);
 	}
 
 	/* check if we got a chip name */
