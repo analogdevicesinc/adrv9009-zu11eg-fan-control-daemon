@@ -3,7 +3,8 @@
 # Copyright (C) 2019 Analog Devices Inc.
 [Unit]
 Description=FANCONTROL Daemon
-ConditionPathExists=/sys/bus/iio /sys/class/hwmon
+ConditionPathExists=/sys/bus/iio
+ConditionPathExists=/sys/class/hwmon
 
 [Service]
 ExecStart=@CMAKE_INSTALL_FULL_SBINDIR@/@BIN@
