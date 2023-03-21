@@ -385,7 +385,7 @@ static int hwmon_find(const char *dev_name)
 	DIR *hwmon;
 	struct dirent *dir;
 	uint8_t found = FALSE;
-	int ret = -1;
+	int ret = -ENODEV;
 
 	hwmon = opendir(HWMON_PATH);
 	if (!hwmon) {
@@ -412,12 +412,15 @@ static int hwmon_find(const char *dev_name)
 			fan_monitor.path = calloc(1, strlen(path) + 1);
 			if (!fan_monitor.path) {
 				error("calloc: %s\n", strerror(errno));
+				ret = -1;
 				goto free_chip;
 			}
 			/* get current pwm */
 			pwm = sysfs_read_attr(path, "pwm1");
-			if (!pwm)
+			if (!pwm) {
+				ret = -1;
 				goto free_chip;
+			}
 
 			fan_monitor.pwm = atoi(pwm);
 			free(pwm);
@@ -599,12 +602,20 @@ int main(int argc, char *argv[])
 	if (register_signals() < 0)
 		exit(EXIT_FAILURE);
 
-	ret = iio_devices_scan();
-	if (ret < 0)
-		goto err;
-
 	/* lookup for the hwmon device */
 	ret = hwmon_find(dev_name);
+	if (ret < 0) {
+		/*
+		 * don't treat -ENODEV as error. Just treat it like "no device,
+		 * no need for monitoring"
+		 */
+		if (ret == -ENODEV)
+			ret = 0;
+
+		goto err;
+	}
+
+	ret = iio_devices_scan();
 	if (ret < 0)
 		goto err;
 
