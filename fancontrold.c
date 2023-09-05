@@ -19,7 +19,7 @@
 #include <sys/reboot.h>
 #include <dirent.h>
 #include <syslog.h>
-#include <iio.h>
+#include <iio/iio.h>
 
 #define emerg(fmt, ...) \
 	syslog(LOG_EMERG, \
@@ -202,7 +202,7 @@ static long monitor_iio_dev_attr_get(const struct monitor_iio_dev *dev)
 	long temp;
 	char *endptr;
 
-	cnt = iio_channel_attr_read(dev->ch, dev->attr, buf, sizeof(buf));
+	cnt = iio_channel_attr_read_raw(dev->ch, dev->attr, buf, sizeof(buf));
 	if (cnt < 0) {
 		error("Failed to read attr: %s\n", strerror(-cnt));
 		return 0;
@@ -474,7 +474,7 @@ static int iio_devices_scan(void)
 	uint32_t cnt;
 	int ret = 0;
 
-	fan_monitor.ctx = iio_create_default_context();
+	fan_monitor.ctx = iio_create_context(NULL, NULL);
 	if (!fan_monitor.ctx) {
 		error("Failed to create iio context\n");
 		return -1;
